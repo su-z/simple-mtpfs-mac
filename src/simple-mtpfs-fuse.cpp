@@ -15,11 +15,15 @@
 *   along with this program. If not, see <http://www.gnu.org/licenses/>.
 * ***** END LICENSE BLOCK ***** */
 
+// Notification of change to source code by Su Z (https://github.com/su-z)
+// Some modifications to this file are done on 29 Nov 2023, in particular adding the implementation of four functions related to extended attributes, so that the program works better on macOS
+
 #include <config.h>
+#include <cstdlib>
 #include <iostream>
 extern "C" {
 #  include <errno.h>
-#  include <fuse_opt.h>
+#  include <fuse.h>
 #  include <unistd.h>
 #  include <stddef.h>
 }
@@ -30,6 +34,26 @@ extern "C" {
 int wrap_getattr(const char *path, struct stat *statbuf)
 {
     return SMTPFileSystem::instance()->getattr(path, statbuf);
+}
+
+static int wrap_setxattr(const char *path, const char *name, const char *value, size_t size, int flags, uint32_t position){
+    return 0;
+}
+
+static int wrap_getxattr(const char *path, const char *name, char *value,size_t size, uint32_t position){
+    return -1;
+}
+
+static int wrap_listxattr(const char *path, char* list, size_t size){
+    return 0;
+}
+
+static int wrap_removexattr(const char *path, const char *name){
+    return 0;
+}
+
+int wrap_fgetattr(const char *path, struct stat *stbuf, struct fuse_file_info * fi){
+    return SMTPFileSystem::instance()->fgetattr(path, stbuf, fi);
 }
 
 int wrap_mknod(const char *path, mode_t mode, dev_t dev)
@@ -126,6 +150,11 @@ int wrap_statfs(const char *path, struct statvfs *stat_info)
 {
     return SMTPFileSystem::instance()->statfs(path, stat_info);
 }
+#if __APPLE__
+int wrap_statfs_x(const char *path, struct statfs *stat_info){
+    return SMTPFileSystem::instance()->statfs_x(path, stat_info);
+}
+#endif
 
 int wrap_flush(const char *path, struct fuse_file_info *file_info)
 {
@@ -239,15 +268,15 @@ SMTPFileSystem::SMTPFileSystem():
     m_device()
 {
     m_fuse_operations.getattr = wrap_getattr;
-    m_fuse_operations.readlink = nullptr;
-    m_fuse_operations.getdir = nullptr;
+    m_fuse_operations.readlink = nullptr; // Not supported by MTP (Maybe implementing using ADB?)
+    m_fuse_operations.getdir = nullptr; // No need to implement
     m_fuse_operations.mknod = wrap_mknod;
     m_fuse_operations.mkdir = wrap_mkdir;
     m_fuse_operations.unlink = wrap_unlink;
     m_fuse_operations.rmdir = wrap_rmdir;
-    m_fuse_operations.symlink = nullptr;
+    m_fuse_operations.symlink = nullptr; // Not supported by MTP (Maybe implementing using ADB?)
     m_fuse_operations.rename = wrap_rename;
-    m_fuse_operations.link = nullptr;
+    m_fuse_operations.link = nullptr; // // Not supported by MTP (Maybe implementing using ADB?)
     m_fuse_operations.chmod = wrap_chmod;
     m_fuse_operations.chown = wrap_chown;
     m_fuse_operations.truncate = wrap_truncate;
@@ -256,13 +285,18 @@ SMTPFileSystem::SMTPFileSystem():
     m_fuse_operations.read = wrap_read;
     m_fuse_operations.write = wrap_write;
     m_fuse_operations.statfs = wrap_statfs;
+#ifdef __APPLE__
+    m_fuse_operations.statfs_x = wrap_statfs_x;
+#else
+    m_fuse_operations.statfs_x = nullptr;
+#endif
     m_fuse_operations.flush = wrap_flush;
     m_fuse_operations.release = wrap_release;
     m_fuse_operations.fsync = wrap_fsync;
-    m_fuse_operations.setxattr = nullptr;
-    m_fuse_operations.getxattr = nullptr;
-    m_fuse_operations.listxattr = nullptr;
-    m_fuse_operations.removexattr = nullptr;
+    m_fuse_operations.setxattr = wrap_setxattr; // nullptr; // Not implemented
+    m_fuse_operations.getxattr = wrap_getxattr; // nullptr; // Not implemented
+    m_fuse_operations.listxattr = wrap_listxattr; // Not implemented
+    m_fuse_operations.removexattr = wrap_removexattr; // Not implemented
     m_fuse_operations.opendir = wrap_opendir;
     m_fuse_operations.readdir = wrap_readdir;
     m_fuse_operations.releasedir = wrap_releasedir;
@@ -272,7 +306,8 @@ SMTPFileSystem::SMTPFileSystem():
     m_fuse_operations.access = nullptr;
     m_fuse_operations.create = wrap_create;
     m_fuse_operations.ftruncate = wrap_ftruncate;
-    m_fuse_operations.fgetattr = nullptr;
+    m_fuse_operations.fgetattr = wrap_fgetattr; 
+    // m_fuse_operations.ioctl; // No need to implement
 }
 
 SMTPFileSystem::~SMTPFileSystem()
@@ -365,6 +400,7 @@ void SMTPFileSystem::printHelp() const
         << "    -o enable-move         enable the move operations\n\n";
     fuse_opt_add_arg(&args, m_args.argv[0]);
     fuse_opt_add_arg(&args, "-ho");
+    
     fuse_main(args.argc, args.argv, &tmp_operations, nullptr);
     fuse_opt_free_args(&args);
     std::cerr << "\nReport bugs to <" << PACKAGE_BUGREPORT << ">.\n";
@@ -378,7 +414,14 @@ void SMTPFileSystem::printVersion() const
     fuse_opt_add_arg(&args, m_args.argv[0]);
     fuse_opt_add_arg(&args, "--version");
     std::cout << "simple-mtpfs version " << VERSION << "\n";
+
+    #ifdef ARG_DEBUG
+    puts("ARG debug");
+    char * test_argv[] = {args.argv[0], "-f", "/Users/jethrosu/me/codes_new/simple-mtpfs-remastered/build/mntpt"};
+    fuse_main(3, test_argv, &tmp_operations, nullptr);
+    #else
     fuse_main(args.argc, args.argv, &tmp_operations, nullptr);
+    #endif
     fuse_opt_free_args(&args);
 }
 
@@ -417,6 +460,15 @@ bool SMTPFileSystem::exec()
             return false;
     }
     m_device.enableMove(m_options.m_enable_move);
+    puts("fuseman!");
+    
+    #ifdef ARG_DEBUG
+        puts("ARG debug");
+        system("say arg debug");
+        char * test_argv[] = {m_args.argv[0], "-odebug", "/Users/jethrosu/me/codes_new/simple-mtpfs-remastered/build/mntpt"};
+        fuse_main(3, test_argv, &m_fuse_operations, nullptr);
+        return true;
+    #endif
     if (fuse_main(m_args.argc, m_args.argv, &m_fuse_operations, nullptr) > 0) {
         return false;
     }
@@ -476,6 +528,14 @@ int SMTPFileSystem::getattr(const char *path, struct stat *buf)
 
     return 0;
 }
+
+// An ugly implementation of fgetattr
+#define ENABLE_FGETATTR
+#ifdef ENABLE_FGETATTR
+int SMTPFileSystem::fgetattr (const char *path, struct stat *buf, struct fuse_file_info *){
+    return SMTPFileSystem::getattr(path, buf);
+}
+#endif
 
 int SMTPFileSystem::mknod(const char *path, mode_t mode, dev_t dev)
 {
@@ -742,6 +802,21 @@ int SMTPFileSystem::statfs(const char *path, struct statvfs *stat_info)
     stat_info->f_blocks = m_device.storageTotalSize() / bs;
     stat_info->f_bavail = m_device.storageFreeSize() / bs;
     stat_info->f_bfree = stat_info->f_bavail;
+    return 0;
+}
+
+
+int SMTPFileSystem::statfs_x(const char *path, struct statfs *stat_info)
+{
+#ifdef __APPLE__
+    uint64_t bs = 1024;
+    // XXX: linux coreutils still use bsize member to calculate free space
+    stat_info->f_bsize = static_cast<unsigned long>(bs);
+    // stat_info->f_frsize = static_cast<unsigned long>(bs); // no such field
+    stat_info->f_blocks = m_device.storageTotalSize() / bs;
+    stat_info->f_bavail = m_device.storageFreeSize() / bs;
+    stat_info->f_bfree = stat_info->f_bavail;
+#endif
     return 0;
 }
 

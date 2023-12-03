@@ -15,6 +15,9 @@
 *   along with this program. If not, see <http://www.gnu.org/licenses/>.
 * ***** END LICENSE BLOCK ***** */
 
+// Notification of change to source code by Su Z (https://github.com/su-z)
+// Some modifications to this file are done on 29 Nov 2023, in particular adding the implementation of four functions related to extended attributes, so that the program works better on macOS
+
 #ifndef SMTPFS_FUSE_H
 #define SMTPFS_FUSE_H
 
@@ -28,6 +31,7 @@ extern "C" {
 #include "simple-mtpfs-mtp-device.h"
 #include "simple-mtpfs-tmp-files-pool.h"
 #include "simple-mtpfs-type-tmp-file.h"
+
 
 class SMTPFileSystem
 {
@@ -79,6 +83,7 @@ public:
     bool isListDevices() const { return m_options.m_list_devices; }
 
     int getattr(const char *path, struct stat *buf);
+    int fgetattr(const char *, struct stat *, struct fuse_file_info *);
     int mknod(const char *path, mode_t mode, dev_t dev);
     int mkdir(const char *path, mode_t mode);
     int unlink(const char *path);
@@ -92,6 +97,7 @@ public:
     int read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *file_info);
     int write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *file_info);
     int statfs(const char *path, struct statvfs *stat_info);
+    int statfs_x(const char *path, struct statfs *stat_info);
     int flush(const char *path, struct fuse_file_info *file_info);
     int release(const char *path, struct fuse_file_info *file_info);
     int fsync(const char *path, int datasync, struct fuse_file_info *fi);

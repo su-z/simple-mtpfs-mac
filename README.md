@@ -1,86 +1,82 @@
-ABOUT
-=====
 
-SIMPLE-MTPFS (Simple Media Transfer Protocol FileSystem) is a file system for
-Linux (and other operating systems with a FUSE implementation, such as Mac OS X
-or FreeBSD) capable of operating on files on MTP devices attached via USB to
-local machine. On the local computer where the SIMPLE-MTPFS is mounted, the
-implementation makes use of the FUSE (Filesystem in Userspace) kernel module.
-The practical effect of this is that the end user can seamlessly interact with
-MTP device files.
+Simple MTPFS for mac (and also linux)
+=====================================
 
-LATEST VERSION
-==============
+SIMPLE-MTPFS (Simple Media Transfer Protocol FileSystem) is a file system, capable of reading and writing data on an MTP device. **This can be used for transfering data between an android phone and a computer.** The original source code repo of SIMPLE-MTPFS can be found at [https://github.com/phatina/simple-mtpfs](). The current project is a fork of SIMPLE-MTPFS, with improvements, so that it works properly on macOS (tested on macOS 14). Files can be viewed in the Finder app with no problems, offering a seamless experience. A GUI app is on the way.
 
-Latest sources of the software can be found at: [simple-mtpfs][]
+To simplify the build process, I have changed from using autotools to using CMake. (I could not get autotools to work probably due to some issues with configuration.)
 
-INSTALLATION
-============
+## Why using this instead of some other app?
 
-Simple-mtpfs depends on fuse (version >= **2.7.3**) and libmtp. It also
-requires the C++ compiler to support **C++11** standard.
+Windows file explorer itself supports MTP. On macOS, we can use apps like android file transfer. However, many of these options are good enough, because they typically do not mount the android device as part of the filesystem tree. In practice this means that (1) you cannot operate on android files using programs written and compiled for the mac and (2) inside GUI for accessing android files, whether it is the UI of native file manager or another app, some context menu options will be missing.
 
-To install the driver, follow these steps:
+With SIMPLE-MTPFS-MAC, you can **mount** your phone just like an USB drive, to enjoy the full set of file operations.
 
-    $ mkdir build && cd build
-    $ ../configure
-    $ make
-    $ make install (as root)
+## Build and Install
 
-Due to MTP nature, it is necessary to use a folder, where the temporary files
-downloaded will be downloaded. The project can be configured to use custom
-directory for such files. To configure the simple-mtpfs to use desired
-temporary directory, add `--with-tmpdir=TMPDIR` option to configure script.
-Default value for temporary directory is `/tmp`.
+Firstly, install the packages `libusb, libmtp, libfuse`. On macOS (if you want to compile on linux, install those package using whatever method avaliable), to get `libfuse`, install macFUSE with `brew`. This can be done with
 
-If you got the sources from git repository, first you have to run:
+```shell
+brew install libusb libmtp macfuse
+```
 
-    $ ./autogen.sh
+We of course also need a C++ 17 compiler and CMake. We can do
 
-MOUNTING
-========
+```C
+brew install llvm cmake
+```
 
-To mount MTP-based device to your local filesystem, simply run:
+For macFUSE, you may need to do some configurations on allowing kernel extensions. Follow the instructions on the macFUSE website. 
 
-    $ simple-mtpfs mountpoint [options]
+Then, please figure out the installation path of the libraries above and the corresponding header paths, and set those paths manually in `CMakeLists.txt`, by setting the value of variables. For instance, change `set(LIBUSB_LIBRARIES)` to `set(LIBUSB_LIBRARIES /path/to/library)`. I would really welcome any suggestions on how to make CMake find those automatically - but at the moment that's what I have got.
 
-If you have more than one MTP device attached to the computer, it is possible
-to specify which device, you are willing to mount. Either by entering its **order
-number** or special file usually placed in `/dev`:
+Then we are ready to run the usual thing in the terminal
 
-MOUNTING BY NUMBER
-------------------
+```shell
+mkdir build
+cd build
+cmake ..
+cmake --build .
+```
 
-    $ simple-mtpfs --device <number> mountpoint [options]
+Then copy the executable produced to anywhere you want.
 
-Where the `<number>` should contain a numeric order of the device, you are
-about to mount. To get a list of all attached devices, execute following:
+It should also be easy to port the program to windows, with winfsp and msys2. However, you might need to modify some codes.
 
-    $ simple-mtpfs --list-devices
-    <number>: <device name>
-    <number>: <device name>
-    ...
+## Use
 
-MOUNTING BY SPECIAL FILE
-------------------------
+Run
 
-Enter special device file as the first argument to simple-mtpfs. The special device
-file is usually named as `/dev/libmtp-*`.
+```
+mtpfs -f <mountpoint>
+```
 
-    $ simple-mtpfs <device> mountpoint [options]
+to mount the android device currently connected to the computer, assuming there is only one device connected.
 
-UNMOUNTING
-==========
+Please do not omit the `-f` option; otherwise it does not work. I haven't yet debugged this issue.
 
-To unmount MTP device, execute following command:
+## How it works
 
-    $ fusermount -u <mountpoint>
+I will explain some of the wired details behind this.
 
-BUG REPORTS
-===========
+The original project https://github.com/phatina/simple-mtpfs probably compiles on macOS with some modifications to the build scripts. However, the binary produced does not work well because some system calls are not implemented. When trying to copy files into the android device in finder, finder will raise error or even crash. Sometimes you need to hard reboot by pressing the power button.
 
-Report bugs to [phatina@gmail.com](mailto:phatina@gmail.com) or
-[simple-mtpfs issues][].
+Thus, I have added vacuous implementations of some system calls. For anyone else who are writing a FUSE driver for macOS, this is something to keep in mind.
 
-[simple-mtpfs]: https://github.com/phatina/simple-mtpfs "simple-mtpfs repository on github"
-[simple-mtpfs issues]: https://github.com/phatina/simple-mtpfs/issues "Report a bug"
+Another thing to note is that macOS on apple silicon chips run with memory page size 16KB. If some older versions of libraries assume a 4KB page size, it will not work properly.
+
+## Changes to the original repo
+
+1. All the files related to autotools are removed. This includes all files in the root directory of the project except for `config.h`. (`config.h` is now not auto-generated.) The following files and directories are removed from the original repo:
+   ```
+   NEWS              ChangeLog        debian
+   makefile.am
+   autogen.sh        man
+   INSTALL           configure.ac      simple-mtpfs.spec
+   ```
+2. The old README.md is replaced by a new one.
+3. `src/simple-mtpfs-fuse.cpp` is modified to support more system calls.
+4. `src/simple-mtpfs-ls.cpp` removed.
+5. `CMakeLists.txt` added.
+6. `.gitignore` changed to accommodate all the above modifications.
+
